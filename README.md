@@ -61,6 +61,7 @@ assets/
 ```bash
 cd HYOI-WebAR-App
 npx http-server -p 8080
+```
 
 ## 実機（スマホ）で確認する（HTTPS推奨）
 - ngrok を使う
@@ -68,7 +69,7 @@ npx http-server -p 8080
 
 ```bash
 ngrok http 8080
-
+```
 - 出力された https://xxxxx.ngrok-free.app をスマホで開き、Start を押してカメラ許可 → ターゲットを映してください。
 ngrokはアカウント作成とauthtoken登録が必要な場合があります。
 ngrok config add-authtoken <YOUR_TOKEN> を実行してください。
