@@ -13,17 +13,17 @@
 ---
 
 ## ディレクトリ構成
-HYOI-WebAR-App/
-index.html
-src/
-  main.js
-  mindar.js
-  avatar.js
-  ui.js
-  utils.js
-assets/
-  targets.mind
-  Panda.glb
+- HYOI-WebAR-App/
+  - index.html
+  - src/
+    - main.js
+    - mindar.js
+    - avatar.js
+    - ui.js
+    - utils.js
+  - assets/
+    - targets.mind
+    - Panda.glb
 
 
 ---
