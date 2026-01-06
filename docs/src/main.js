@@ -2,6 +2,8 @@ import { createMindARSession } from "./mindar.js";
 import { loadAnimatedAvatar, createAvatarController } from "./avatar.js";
 import { bindUI } from "./ui.js";
 import { setStatus } from "./utils.js";
+import { createWanderController } from "./wander.js";
+
 
 const CONFIG = {
     containerId: "container",
@@ -21,7 +23,7 @@ const CONFIG = {
     debugPlane: { w: 1.0, h: 0.7, opacity: 0.18 },
 
     // アバター初期変換
-    avatar: { scale: 0.4, position: [1.2, 0, 0.6] },
+    avatar: { scale: 0.4, position: [1.2, -5, 5] },
 
     // アニメ名のヒント（なければ先頭を使う）
     preferredIdleKeywords: ["idle", "stand", "breath"],
@@ -49,6 +51,16 @@ async function bootstrap() {
         preferredIdleKeywords: CONFIG.preferredIdleKeywords,
         initialTransform: CONFIG.avatar,
     });
+    const wander = createWanderController({
+        avatarCtrl,
+        radius: 2.5,
+        speed: 0.35,
+        arriveDistance: 0.06,
+        idleMin: 0.6,
+        idleMax: 1.4,
+        y: 0,
+    });
+
     setStatus(CONFIG.statusId, `status: avatar loaded (clips: ${avatarCtrl.clipNames.length})`);
     console.log("Animation clips:", avatarCtrl.clipNames);
 
@@ -56,12 +68,13 @@ async function bootstrap() {
     session.anchor.onTargetFound = () => {
         setStatus(CONFIG.statusId, "status: target FOUND");
         avatarCtrl.show();
-        avatarCtrl.playIdle();
+        wander.start();
         session.setAnimating(true);
     };
 
     session.anchor.onTargetLost = () => {
         setStatus(CONFIG.statusId, "status: target LOST");
+        wander.stop();
         avatarCtrl.hide();
         avatarCtrl.stopAll();         // 「一時停止したい」なら stopAll を pause に置換してもOK
         session.setAnimating(false);
@@ -86,6 +99,7 @@ async function bootstrap() {
 
     // 5) ループ：mixer更新 + render
     session.setUpdate((dt) => {
+        wander.update(dt);
         avatarCtrl.update(dt);
     });
 

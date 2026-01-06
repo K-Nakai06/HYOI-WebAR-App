@@ -68,6 +68,14 @@ export function createAvatarController({
     fadeTo(idle, 0.15);
   }
 
+  function playWalk() {
+    if (!mixer) return;
+    // walk/run系を優先、なければ先頭クリップ
+    const walk = pickAction(actions, ["walk", "run", "move"]);
+    fadeTo(walk, 0.15);
+  }
+
+
   function stopAll() {
     if (!mixer) return;
     Object.values(actions).forEach((a) => a.stop());
@@ -86,6 +94,7 @@ export function createAvatarController({
     show,
     hide,
     playIdle,
+    playWalk,
     stopAll,
     update,
   };
