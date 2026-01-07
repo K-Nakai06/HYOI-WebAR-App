@@ -1,8 +1,10 @@
 import { createMindARSession } from "./mindar.js";
 import { loadAnimatedAvatar, createAvatarController } from "./avatar.js";
-import { bindUI } from "./ui.js";
+import { bindUI, ensurePossessButton, showPossessButtonAt, hidePossessButton } from "./ui.js?v=3";
 import { setStatus } from "./utils.js";
 import { createWanderController } from "./wander.js";
+import * as THREE from "three";
+
 
 
 const CONFIG = {
@@ -42,6 +44,13 @@ async function bootstrap() {
         debugPlane: CONFIG.debugPlane,
     });
 
+    ensurePossessButton({
+        onClick: () => {
+            setStatus(CONFIG.statusId, "status: 憑依ボタン押下（ここに憑依処理を追加）");
+        },
+    });
+
+
     // 2) アバター読み込み & 制御器作成
     setStatus(CONFIG.statusId, "status: loading avatar...");
     const avatarAsset = await loadAnimatedAvatar(CONFIG.avatarPath);
@@ -51,6 +60,32 @@ async function bootstrap() {
         preferredIdleKeywords: CONFIG.preferredIdleKeywords,
         initialTransform: CONFIG.avatar,
     });
+
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let targetVisible = false;
+
+    // canvas上のタップ座標 → NDCに変換してRaycast
+    function onPointerDown(e) {
+        if (!targetVisible) return;
+
+        const rect = session.domElement.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+
+        ndc.set(x * 2 - 1, -(y * 2 - 1));
+        raycaster.setFromCamera(ndc, session.camera);
+
+        // ターゲット面（hitPlane）に当たったら「憑依」ボタン表示
+        const hits = raycaster.intersectObject(session.hitPlane, true);
+        if (hits.length > 0) {
+            showPossessButtonAt(e.clientX, e.clientY);
+        }
+    }
+
+    // pointerイベント（スマホ/PC両対応）
+    session.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
+
     const wander = createWanderController({
         avatarCtrl,
         radius: 2.5,
@@ -70,6 +105,10 @@ async function bootstrap() {
         avatarCtrl.show();
         wander.start();
         session.setAnimating(true);
+        // ボタンは「タップしたら出す」ので、FOUND時は一旦隠す
+        // hidePossessButton();
+        // ★テスト：強制的にボタン表示
+        showPossessButtonAt(window.innerWidth / 2, window.innerHeight - 120);
     };
 
     session.anchor.onTargetLost = () => {
@@ -78,6 +117,7 @@ async function bootstrap() {
         avatarCtrl.hide();
         avatarCtrl.stopAll();         // 「一時停止したい」なら stopAll を pause に置換してもOK
         session.setAnimating(false);
+        hidePossessButton(); // ←LOSTで確実に消す
     };
 
     // 4) UI（Start/Stop）

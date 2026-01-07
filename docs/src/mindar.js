@@ -28,11 +28,16 @@ export async function createMindARSession({
   const anchor = mindarThree.addAnchor(0);
 
   // 認識確認用プレーン（任意）
-  const debug = new THREE.Mesh(
+  // これを“タップ判定用”にも使う
+  const hitPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(debugPlane.w, debugPlane.h),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: debugPlane.opacity })
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: debugPlane.opacity ?? 0.0, // 見せたくないなら 0.0
+    })
   );
-  anchor.group.add(debug);
+  anchor.group.add(hitPlane);
+
 
   // ループ制御
   const clock = new THREE.Clock();
@@ -67,6 +72,8 @@ export async function createMindARSession({
     scene,
     camera,
     anchor,
+    hitPlane,                 // ←追加
+    domElement: renderer.domElement,
     start,
     stop,
     setUpdate,
