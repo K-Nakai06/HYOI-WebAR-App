@@ -1,9 +1,9 @@
 import { createMindARSession } from "./mindar.js";
 import { loadAnimatedAvatar, createAvatarController } from "./avatar.js";
-import { bindUI } from "./ui.js";
+import { bindUI, ensurePossessButton, setPossessEnabled, setPossessLabel } from "./ui.js?v=5";
 import { setStatus } from "./utils.js";
 import { createWanderController } from "./wander.js";
-
+import * as THREE from "three";
 
 const CONFIG = {
     containerId: "container",
@@ -11,21 +11,15 @@ const CONFIG = {
     startBtnId: "startBtn",
     stopBtnId: "stopBtn",
 
-    // assets
     targetMindPath: "./assets/targets.mind",
     avatarPath: "./assets/Panda.glb",
 
-    // MindAR tuning（必要に応じて調整）
     filterMinCF: 0.001,
     filterBeta: 1000,
 
-    // ターゲット面サイズ（デバッグ用プレーン）
     debugPlane: { w: 1.0, h: 0.7, opacity: 0.18 },
 
-    // アバター初期変換
     avatar: { scale: 0.4, position: [1.2, -5, 5] },
-
-    // アニメ名のヒント（なければ先頭を使う）
     preferredIdleKeywords: ["idle", "stand", "breath"],
 };
 
@@ -33,7 +27,10 @@ async function bootstrap() {
     const container = document.getElementById(CONFIG.containerId);
     if (!container) throw new Error("container not found");
 
-    // 1) MindARセッションを作る
+     // スマホでのジェスチャ競合を避ける
+    container.style.touchAction = "none";
+
+    // 1) MindAR session
     const session = await createMindARSession({
         container,
         imageTargetSrc: CONFIG.targetMindPath,
@@ -42,15 +39,34 @@ async function bootstrap() {
         debugPlane: CONFIG.debugPlane,
     });
 
-    // 2) アバター読み込み & 制御器作成
+    // 2) ライト追加（黒くなる対策）
+    session.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(1, 2, 1);
+    session.scene.add(dir);
+
+    // 3) 固定「憑依」ボタン（常時表示・FOUND中だけ有効）
+    ensurePossessButton({
+        onClick: () => {
+            // ここに「憑依開始」処理を後で入れる
+            setStatus(CONFIG.statusId, "status: 憑依開始（ダミー）");
+            setPossessLabel("憑依中...");
+            setTimeout(() => setPossessLabel("憑依"), 800);
+        },
+    });
+    setPossessEnabled(false);
+
+    // 4) avatar load
     setStatus(CONFIG.statusId, "status: loading avatar...");
     const avatarAsset = await loadAnimatedAvatar(CONFIG.avatarPath);
+
     const avatarCtrl = createAvatarController({
         sceneGroup: session.anchor.group,
         gltf: avatarAsset.gltf,
         preferredIdleKeywords: CONFIG.preferredIdleKeywords,
         initialTransform: CONFIG.avatar,
     });
+
     const wander = createWanderController({
         avatarCtrl,
         radius: 2.5,
@@ -62,42 +78,61 @@ async function bootstrap() {
     });
 
     setStatus(CONFIG.statusId, `status: avatar loaded (clips: ${avatarCtrl.clipNames.length})`);
-    console.log("Animation clips:", avatarCtrl.clipNames);
 
-    // 3) ターゲット検出イベント（FOUND/LOST）
+    // 5) 状態管理（Start後＆FOUND中だけボタンを有効に）
+    let isRunning = false;
+    let targetVisible = false;
+
+    function refreshPossessEnabled() {
+        setPossessEnabled(isRunning && targetVisible);
+    }
+
+    // 6) target events
     session.anchor.onTargetFound = () => {
+        targetVisible = true;
+        refreshPossessEnabled();
         setStatus(CONFIG.statusId, "status: target FOUND");
         avatarCtrl.show();
         wander.start();
-        session.setAnimating(true);
     };
 
     session.anchor.onTargetLost = () => {
-        setStatus(CONFIG.statusId, "status: target LOST");
+        targetVisible = false;
+        refreshPossessEnabled();
+        setStatus(CONFIG.statusId, "status: target NOT FOUND");
         wander.stop();
         avatarCtrl.hide();
-        avatarCtrl.stopAll();         // 「一時停止したい」なら stopAll を pause に置換してもOK
-        session.setAnimating(false);
+        avatarCtrl.stopAll();
     };
 
-    // 4) UI（Start/Stop）
+    // 7) UI start/stop（ループ制御はここだけ）
     bindUI({
         startBtnId: CONFIG.startBtnId,
         stopBtnId: CONFIG.stopBtnId,
         onStart: async () => {
             setStatus(CONFIG.statusId, "status: starting...");
             await session.start();
+            session.setAnimating(true);
+            isRunning = true;
+            refreshPossessEnabled();
             setStatus(CONFIG.statusId, "status: scanning...");
         },
         onStop: () => {
-        session.stop();
-        avatarCtrl.hide();
-        avatarCtrl.stopAll();
-        setStatus(CONFIG.statusId, "status: stopped");
+            isRunning = false;
+            refreshPossessEnabled();
+
+            session.setAnimating(false);
+            session.stop();
+
+            wander.stop();
+            avatarCtrl.hide();
+            avatarCtrl.stopAll();
+
+            setStatus(CONFIG.statusId, "status: stopped");
         },
     });
 
-    // 5) ループ：mixer更新 + render
+    // 8) loop update
     session.setUpdate((dt) => {
         wander.update(dt);
         avatarCtrl.update(dt);

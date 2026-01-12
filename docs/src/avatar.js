@@ -19,7 +19,7 @@ function pickAction(actionsByName, keywords) {
 }
 
 export function createAvatarController({
-  sceneGroup, // anchor.group を渡す
+  sceneGroup,
   gltf,
   preferredIdleKeywords = ["idle"],
   initialTransform = { scale: 1.0, position: [0, 0, 0] },
@@ -30,7 +30,6 @@ export function createAvatarController({
   avatar.scale.setScalar(initialTransform.scale ?? 1.0);
   const [x, y, z] = initialTransform.position ?? [0, 0, 0];
   avatar.position.set(x, y, z);
-
   sceneGroup.add(avatar);
 
   const clipNames = (gltf.animations ?? []).map((a) => a.name);
@@ -41,19 +40,12 @@ export function createAvatarController({
 
   if (gltf.animations && gltf.animations.length > 0) {
     mixer = new THREE.AnimationMixer(avatar);
-    for (const clip of gltf.animations) {
-      actions[clip.name] = mixer.clipAction(clip);
-    }
+    for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
     activeAction = pickAction(actions, preferredIdleKeywords);
   }
 
-  function show() {
-    avatar.visible = true;
-  }
-
-  function hide() {
-    avatar.visible = false;
-  }
+  function show() { avatar.visible = true; }
+  function hide() { avatar.visible = false; }
 
   function fadeTo(action, duration = 0.2) {
     if (!action) return;
@@ -64,17 +56,13 @@ export function createAvatarController({
 
   function playIdle() {
     if (!mixer) return;
-    const idle = pickAction(actions, preferredIdleKeywords);
-    fadeTo(idle, 0.15);
+    fadeTo(pickAction(actions, preferredIdleKeywords), 0.15);
   }
 
   function playWalk() {
     if (!mixer) return;
-    // walk/run系を優先、なければ先頭クリップ
-    const walk = pickAction(actions, ["walk", "run", "move"]);
-    fadeTo(walk, 0.15);
+    fadeTo(pickAction(actions, ["walk", "run", "move"]), 0.15);
   }
-
 
   function stopAll() {
     if (!mixer) return;
@@ -86,16 +74,5 @@ export function createAvatarController({
     mixer.update(dt);
   }
 
-  return {
-    avatar,
-    mixer,
-    actions,
-    clipNames,
-    show,
-    hide,
-    playIdle,
-    playWalk,
-    stopAll,
-    update,
-  };
+  return { avatar, mixer, actions, clipNames, show, hide, playIdle, playWalk, stopAll, update };
 }

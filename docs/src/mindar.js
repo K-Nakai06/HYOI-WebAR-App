@@ -6,59 +6,60 @@ export async function createMindARSession({
   imageTargetSrc,
   filterMinCF = 0.001,
   filterBeta = 1000,
-  debugPlane = { w: 1, h: 0.7, opacity: 0.15 },
-}) {
+  debugPlane = null, // {w,h,opacity}
+} = {}) {
   const mindarThree = new MindARThree({
     container,
     imageTargetSrc,
-    maxTrack: 1,
     filterMinCF,
     filterBeta,
   });
 
   const { renderer, scene, camera } = mindarThree;
-
-  // ライト（glbが暗くなるのを避ける）
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
-  dir.position.set(1, 2, 1);
-  scene.add(dir);
-
-  // ターゲット0番のアンカー
   const anchor = mindarThree.addAnchor(0);
 
-  // 認識確認用プレーン（任意）
-  const debug = new THREE.Mesh(
-    new THREE.PlaneGeometry(debugPlane.w, debugPlane.h),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: debugPlane.opacity })
-  );
-  anchor.group.add(debug);
+  // 任意：ターゲット上デバッグPlane
+  if (debugPlane?.w && debugPlane?.h) {
+    const p = new THREE.Mesh(
+      new THREE.PlaneGeometry(debugPlane.w, debugPlane.h),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: debugPlane.opacity ?? 0.0,
+      })
+    );
+    anchor.group.add(p);
+  }
 
-  // ループ制御
-  const clock = new THREE.Clock();
   let updateFn = null;
-  let animating = true; // target found時だけtrueにするなど
+  let animating = false;
+  const clock = new THREE.Clock();
 
   function setUpdate(fn) {
     updateFn = fn;
   }
 
-  function setAnimating(v) {
-    animating = v;
+  function setAnimating(flag) {
+    animating = !!flag;
+  }
+
+  function loop() {
+    if (!animating) return;
+    const dt = clock.getDelta();
+    updateFn?.(dt);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
   }
 
   async function start() {
     await mindarThree.start();
-    renderer.setAnimationLoop(() => {
-      const dt = clock.getDelta();
-      if (animating && updateFn) updateFn(dt);
-      renderer.render(scene, camera);
-    });
+    clock.getDelta();
+    animating = true;
+    requestAnimationFrame(loop);
   }
 
   function stop() {
+    animating = false;
     mindarThree.stop();
-    renderer.setAnimationLoop(null);
   }
 
   return {
@@ -67,6 +68,7 @@ export async function createMindARSession({
     scene,
     camera,
     anchor,
+    domElement: renderer.domElement,
     start,
     stop,
     setUpdate,
