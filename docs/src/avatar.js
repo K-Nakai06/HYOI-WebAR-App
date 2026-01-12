@@ -64,6 +64,15 @@ export function createAvatarController({
     fadeTo(pickAction(actions, ["walk", "run", "move"]), 0.15);
   }
 
+  // ★追加：キーワードで任意アクション再生
+  function playByKeywords(keywords, fade = 0.15) {
+    if (!mixer) return false;
+    const action = pickAction(actions, keywords);
+    if (!action) return false;
+    fadeTo(action, fade);
+    return true;
+  }
+
   function stopAll() {
     if (!mixer) return;
     Object.values(actions).forEach((a) => a.stop());
@@ -74,5 +83,17 @@ export function createAvatarController({
     mixer.update(dt);
   }
 
-  return { avatar, mixer, actions, clipNames, show, hide, playIdle, playWalk, stopAll, update };
+  return {
+    avatar,
+    mixer,
+    actions,
+    clipNames,
+    show,
+    hide,
+    playIdle,
+    playWalk,
+    playByKeywords,
+    stopAll,
+    update,
+  };
 }
