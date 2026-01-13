@@ -10,7 +10,7 @@ export async function loadPartsModel(url) {
 export function createPartsController({
   sceneGroup, // session.anchor.group
   gltf,
-  initialTransform = { scale: 1.0, position: [0, 0, 0], rotation: [0, 0, 0] },
+  initialTransform = { scale: 2.0, position: [0, -0.3, 0], rotation: [0, 0, 0] },
   autoHide = true,
 } = {}) {
   const parts = gltf.scene;
