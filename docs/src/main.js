@@ -1,9 +1,10 @@
 import { createMindARSession } from "./mindar.js";
 import { loadAnimatedAvatar, createAvatarController } from "./avatar.js";
-import { bindUI, ensurePossessButton, setPossessEnabled, setPossessLabel } from "./ui.js?v=6";
+import { bindUI, ensurePossessButton, setPossessEnabled, setPossessLabel } from "./ui.js?v=7";
 import { setStatus } from "./utils.js";
 import { createWanderController } from "./wander.js";
 import { createPossessController } from "./possess.js";
+import { loadPartsModel, createPartsController } from "./parts.js";
 import * as THREE from "three";
 
 const CONFIG = {
@@ -15,6 +16,9 @@ const CONFIG = {
   targetMindPath: "./assets/targets.mind",
   avatarPath: "./assets/Panda.glb",
 
+  // ★追加：パーツモデル（目・耳・しっぽ）
+  partsPath: "./assets/parts.glb",
+
   filterMinCF: 0.001,
   filterBeta: 1000,
 
@@ -22,6 +26,14 @@ const CONFIG = {
 
   avatar: { scale: 0.4, position: [1.2, -5, 5] },
   preferredIdleKeywords: ["idle", "stand", "breath"],
+
+  // ★追加：パーツの初期位置合わせ（必要なら調整）
+  // ターゲットの中心(0,0,0)基準で、少し上に持ち上げる等
+  parts: {
+    scale: 0.4,
+    position: [0, 0.02, 0],     // ←最初は少しだけ上（モデルにより調整）
+    rotation: [0, 0, 0],
+  },
 };
 
 async function bootstrap() {
@@ -38,30 +50,40 @@ async function bootstrap() {
     debugPlane: CONFIG.debugPlane,
   });
 
-  // 2) ライト（PBRモデル黒対策）
+  // 2) Light（PBR黒対策）
   session.scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
   const dir = new THREE.DirectionalLight(0xffffff, 1.0);
   dir.position.set(1, 2, 1);
   session.scene.add(dir);
 
-  // 3) 固定ボタン（FOUND中だけ有効）
+  // 状態
   let isRunning = false;
   let targetVisible = false;
 
+  // 後で作るので宣言だけ
+  let wander = null;
+  let possess = null;
+  let avatarCtrl = null;
+  let partsCtrl = null;
+
   function refreshPossessEnabled() {
-    // 憑依中は押させない
-    setPossessEnabled(isRunning && targetVisible && !possess?.isActive());
+    // 憑依中は押させない（parts表示中も押させないならここで制御）
+    const possessing = possess?.isActive?.() ?? false;
+    const partsShown = partsCtrl?.parts?.visible ?? false;
+    setPossessEnabled(isRunning && targetVisible && !possessing && !partsShown);
   }
 
+  // 3) 固定ボタン
   ensurePossessButton({
     onClick: () => {
       if (!isRunning || !targetVisible) return;
+      if (!avatarCtrl?.avatar?.visible) return;
 
       setStatus(CONFIG.statusId, "status: possessing...");
       setPossessLabel("憑依中...");
       setPossessEnabled(false);
 
-      // 放浪停止 → 憑依開始
+      // 放浪停止→憑依開始
       wander.stop();
       possess.start();
     },
@@ -72,14 +94,14 @@ async function bootstrap() {
   setStatus(CONFIG.statusId, "status: loading avatar...");
   const avatarAsset = await loadAnimatedAvatar(CONFIG.avatarPath);
 
-  const avatarCtrl = createAvatarController({
+  avatarCtrl = createAvatarController({
     sceneGroup: session.anchor.group,
     gltf: avatarAsset.gltf,
     preferredIdleKeywords: CONFIG.preferredIdleKeywords,
     initialTransform: CONFIG.avatar,
   });
 
-  const wander = createWanderController({
+  wander = createWanderController({
     avatarCtrl,
     radius: 2.5,
     speed: 0.35,
@@ -89,41 +111,58 @@ async function bootstrap() {
     y: 0,
   });
 
-  // 5) 憑依演出コントローラ
-  const possess = createPossessController({
+  // 5) parts load（★追加）
+  setStatus(CONFIG.statusId, "status: loading parts...");
+  const partsAsset = await loadPartsModel(CONFIG.partsPath);
+
+  partsCtrl = createPartsController({
+    sceneGroup: session.anchor.group,
+    gltf: partsAsset.gltf,
+    initialTransform: CONFIG.parts,
+    autoHide: true,
+  });
+
+  // 6) possess controller
+  possess = createPossessController({
     avatarCtrl,
     anchorGroup: session.anchor.group,
-    // ターゲット中心の少し手前に寄せる
     approachOffset: new THREE.Vector3(0, 0, 0.35),
     moveSpeed: 1.2,
     arriveDistance: 0.06,
     possessDuration: 0.9,
   });
 
-  possess.onStart(() => {
-    // ここで必要なら効果音なども（後で）
-  });
-
+  // 憑依完了 → パーツ表示（★ここがメイン）
   possess.onDone(() => {
     setStatus(CONFIG.statusId, "status: possessed!");
     setPossessLabel("憑依完了");
 
-    // ここから先は「目/耳/しっぽだけ出す」等の表現へ繋げられます
-    // いったんFOUND中は“完了表示”のままにして、LOSTでリセットします
+    // ★パーツだけ残す
+    partsCtrl.resetTransform(); // 念のため毎回初期Transformへ
+    partsCtrl.show();
+
+    refreshPossessEnabled(); // 押せない状態にしたければこのまま
   });
 
-  setStatus(CONFIG.statusId, `status: avatar loaded (clips: ${avatarCtrl.clipNames.length})`);
+  setStatus(
+    CONFIG.statusId,
+    `status: loaded (avatar clips: ${avatarCtrl.clipNames.length}, parts clips: ${partsCtrl.clipNames.length})`
+  );
 
-  // 6) target events
+  // 7) target events
   session.anchor.onTargetFound = () => {
     targetVisible = true;
     setStatus(CONFIG.statusId, "status: target FOUND");
 
-    // アバターを表示して放浪開始（まだ憑依してない状態）
+    // ターゲット再検出時：まずパーツは隠して、通常状態へ
+    partsCtrl.hide();
+    partsCtrl.resetTransform();
+
+    // アバター再登場
     avatarCtrl.show();
     wander.start();
 
-    // ボタン状態更新
+    // UI
     setPossessLabel("憑依");
     refreshPossessEnabled();
   };
@@ -132,20 +171,24 @@ async function bootstrap() {
     targetVisible = false;
     setStatus(CONFIG.statusId, "status: target NOT FOUND");
 
-    // 演出リセット
+    // 憑依演出リセット
     possess.stopAndReset();
 
-    // アバターを隠す（次にFOUNDしたらまた表示）
+    // アバター停止＆隠す
     wander.stop();
     avatarCtrl.hide();
     avatarCtrl.stopAll();
 
-    // UIもリセット
+    // ★パーツも消す（ターゲットが無いので）
+    partsCtrl.hide();
+    partsCtrl.resetTransform();
+
+    // UI
     setPossessLabel("憑依");
     refreshPossessEnabled();
   };
 
-  // 7) UI start/stop（ループ制御はここ）
+  // 8) UI start/stop
   bindUI({
     startBtnId: CONFIG.startBtnId,
     stopBtnId: CONFIG.stopBtnId,
@@ -153,10 +196,8 @@ async function bootstrap() {
       setStatus(CONFIG.statusId, "status: starting...");
       await session.start();
       session.setAnimating(true);
-
       isRunning = true;
       refreshPossessEnabled();
-
       setStatus(CONFIG.statusId, "status: scanning...");
     },
     onStop: () => {
@@ -166,28 +207,29 @@ async function bootstrap() {
       session.stop();
 
       possess.stopAndReset();
+      partsCtrl.hide();
+      partsCtrl.resetTransform();
+
       wander.stop();
       avatarCtrl.hide();
       avatarCtrl.stopAll();
 
       setPossessLabel("憑依");
       refreshPossessEnabled();
-
       setStatus(CONFIG.statusId, "status: stopped");
     },
   });
 
-  // 8) loop update
+  // 9) loop update
   session.setUpdate((dt) => {
-    // 憑依中は wander を止めているので、updateしても実害はないが一応分岐
-    if (!possess.isActive()) {
-      wander.update(dt);
-    }
+    // 憑依中はwander止めてるので任意
+    if (!possess.isActive()) wander.update(dt);
+
     possess.update(dt);
     avatarCtrl.update(dt);
 
-    // ボタン状態を憑依の終了タイミングで戻したい場合はここで
-    // （完了後は「憑依完了」のままにしてるので、今回は戻さない）
+    // ★パーツのアニメ更新（あれば）
+    partsCtrl.update(dt);
   });
 
   setStatus(CONFIG.statusId, "status: ready (press Start)");
